@@ -25,22 +25,19 @@ public class MultiListen implements Runnable{
 		ObjectInputStream is = null;
 		ObjectOutputStream os = null;
 		CommandProcessor processor = new CommandProcessor();
+		processor.clientIP = clientSocket.getInetAddress().getHostAddress();
 		try {
 			is = new ObjectInputStream(clientSocket.getInputStream());
 	    	os = new ObjectOutputStream(clientSocket.getOutputStream());
 	    	while (true) {
 	    		try {
-	    			System.out.println("aa");
 	    			input = (DataObject) is.readObject();
-	    			System.out.println("a");
 	    		}
 	    		catch (Exception E) {
 	    			System.out.println(E);
 	    		}
 	    		output = processor.process(input);
-	    		System.out.println("bb");
-    			os.writeObject(output);
-    			System.out.println("b");
+	    		os.writeObject(output);
     			if(output.message.compareToIgnoreCase("Rsp Bye")==0){
     				clientSocket.close();
     				break;

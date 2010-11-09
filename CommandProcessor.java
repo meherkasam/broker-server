@@ -2,6 +2,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.io.*;
 import java.math.BigInteger;
 import java.security.SecureRandom;
+import java.util.ArrayList;
 import java.util.Iterator;
 
 /**
@@ -21,16 +22,22 @@ public class CommandProcessor {
 	static String serverRoot = "./";
 	FileOutputStream streamToBeWritten = null;
 	public static ConcurrentHashMap<String, DirectoryListObject> listOfFileObjects = null;
+	public static ArrayList<ServerClientMapObject> serverClientMap;
+	public static ArrayList<ListOfClientsObject> clientsList;
+	public static ArrayList<ListOfServersObject> serversList;
+	public String clientIP;
 	public CommandProcessor() {		
-
+		clientsList = new ArrayList<ListOfClientsObject>();
 	}	
 	/**/
 	public DataObject process(DataObject input) {
 		String[] tokens = input.message.split(" ");
 		if(tokens[0].compareToIgnoreCase("Req")==0) {
 			if(tokens[1].compareToIgnoreCase("HELLO") == 0) {
-				DataObject a = new DataObject(0, Integer.parseInt(tokens[2]));
-				//Hello(a);
+				DataObject a = new DataObject(0, Integer.parseInt(tokens[3]));
+				a.clientId = input.clientId;
+				int clientPort = Integer.parseInt(tokens[2]);
+				Hello(a, clientPort);
 				System.out.println("Client says hello");
 				return a;
 			}
@@ -51,28 +58,10 @@ public class CommandProcessor {
 				//Get(a, tokens[3], Integer.parseInt(tokens[4]));
 				return a;
 			}
-			else if(tokens[1].compareToIgnoreCase("PULL") == 0) {
-				DataObject a = new DataObject(Integer.parseInt(tokens[5]), Integer.parseInt(tokens[2]));
-				a.clientId = input.clientId;
-				//Pull(a, tokens[3], Integer.parseInt(tokens[4]), Integer.parseInt(tokens[5]));
-				return a;
-			}
 			else if(tokens[1].compareToIgnoreCase("PUT") == 0) {
 				DataObject a = new DataObject(0, Integer.parseInt(tokens[2]));
 				a.clientId = input.clientId;
 				//Put(a, tokens[3], Integer.parseInt(tokens[4]));
-				return a;
-			}
-			else if(tokens[1].compareToIgnoreCase("PUSH") == 0) {
-				DataObject a = new DataObject(Integer.parseInt(tokens[6]), Integer.parseInt(tokens[2]));
-				a.data = input.data;
-				a.length = input.length;
-				a.clientId = input.clientId;
-				boolean isLast = false;
-				if(tokens[4].compareTo("LAST") == 0) {
-					isLast = true;
-				}
-				//Push(a, tokens[3], Integer.parseInt(tokens[5]), Integer.parseInt(tokens[6]), isLast);
 				return a;
 			}
 			else if(tokens[1].compareToIgnoreCase("DELETE") == 0) {
@@ -88,5 +77,17 @@ public class CommandProcessor {
 			}
 		}
 		return null;
+	}
+	DataObject Hello(DataObject a, int port) {
+		if(a.isServer) {
+			//Add server to serverlist
+		}
+		else {
+			//Add client to clientlist
+			ListOfClientsObject newClient = new ListOfClientsObject(clientIP, port, a.clientId);
+			clientsList.add(newClient);
+		}
+		a.message = "Rsp Hello " + String.valueOf(a.reqNo);
+		return a;
 	}
 }
