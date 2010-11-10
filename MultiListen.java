@@ -25,7 +25,7 @@ public class MultiListen implements Runnable{
 		ObjectInputStream is = null;
 		ObjectOutputStream os = null;
 		CommandProcessor processor = new CommandProcessor();
-		processor.clientIP = clientSocket.getInetAddress().getHostAddress();
+		processor.senderIP = clientSocket.getInetAddress().getHostAddress();
 		try {
 			is = new ObjectInputStream(clientSocket.getInputStream());
 	    	os = new ObjectOutputStream(clientSocket.getOutputStream());

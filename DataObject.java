@@ -7,7 +7,7 @@ public class DataObject implements Serializable {
 	public int reqNo;
 	boolean success = true;
 	static final long serialVersionUID = 42L;
-	public String clientId;
+	public String senderId;
 	public boolean isServer;
 	public DataObject(int size) {
 		size*=1024;
