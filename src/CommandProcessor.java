@@ -1,6 +1,7 @@
 import java.util.concurrent.ConcurrentHashMap;
 import java.io.*;
 import java.math.BigInteger;
+import java.net.Socket;
 import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -21,14 +22,16 @@ public class CommandProcessor {
 	private static ConcurrentHashMap<String, File> lookedUpFiles = null;
 	static String serverRoot = "./";
 	FileOutputStream streamToBeWritten = null;
-	int currentClientId;
+	int currentId;
+	boolean isServer = false;
 	public static ConcurrentHashMap<String, DirectoryListObject> listOfFileObjects = new ConcurrentHashMap<String, DirectoryListObject>();
 	public static ArrayList<ServerClientMapObject> serverClientMap = new ArrayList<ServerClientMapObject>();
 	public static ArrayList<ListOfClientsObject> clientsList = new ArrayList<ListOfClientsObject>();
 	public static ArrayList<ListOfServersObject> serversList = new ArrayList<ListOfServersObject>();
+	//public Socket currentSocket = null;
 	public String senderIP;
 	public CommandProcessor() {		
-		
+		//currentSocket = mySock;
 	}	
 	public DataObject process(DataObject input) {
 		String[] tokens = input.message.split(" ");
@@ -52,9 +55,9 @@ public class CommandProcessor {
 				return a;
 			}
 			else if(tokens[1].compareToIgnoreCase("GETDONE") == 0) {
-				DataObject a = new DataObject(0, Integer.parseInt(tokens[2]));
+				DataObject a = new DataObject(0, Integer.parseInt(tokens[3]));
 				a.senderId = input.senderId;
-				GetDone(a);
+				GetDone(a, tokens[2]);
 				return a;
 			}
 			else if(tokens[1].compareToIgnoreCase("GET") == 0) {
@@ -64,9 +67,9 @@ public class CommandProcessor {
 				return a;
 			}
 			else if(tokens[1].compareToIgnoreCase("PUTDONE") == 0) {
-				DataObject a = new DataObject(0, Integer.parseInt(tokens[2]));
+				DataObject a = new DataObject(0, Integer.parseInt(tokens[3]));
 				a.senderId = input.senderId;
-				PutDone(a);
+				PutDone(a, tokens[2]);
 				return a;
 			}
 			else if(tokens[1].compareToIgnoreCase("PUT") == 0) {
@@ -90,6 +93,8 @@ public class CommandProcessor {
 		return null;
 	}
 	DataObject Hello(DataObject a, String[] parameters) {
+		//MultiListen.listOfConnections.get(currentSocket).isServer = a.isServer;
+		isServer = a.isServer;
 		if(a.isServer) {
 			//Add server to serverlist
 			System.out.println("Server says hello");
@@ -101,6 +106,8 @@ public class CommandProcessor {
 			}
 			System.out.println("Servers list: " + servers);
 			int serverIndex = serversList.size() - 1;
+			currentId = serverIndex;
+			//MultiListen.listOfConnections.get(currentSocket).index = serverIndex;
 			for(int i = 5; i < parameters.length; i++) {
 				if(listOfFileObjects.get(parameters[i]) != null) {
 					listOfFileObjects.get(parameters[i]).listOfServers.add(serverIndex);
@@ -118,12 +125,11 @@ public class CommandProcessor {
 			//Add client to clientlist
 			int clientPort = Integer.parseInt(parameters[2]);
 			ListOfClientsObject newClient = new ListOfClientsObject(senderIP, clientPort, a.senderId);
-			currentClientId = clientsList.size();
+			currentId = clientsList.size();
+			//MultiListen.listOfConnections.get(currentSocket).index = currentClientId;
 			clientsList.add(newClient);
 			System.out.println("Client says hello");
 		}
-		int s = listOfFileObjects.size();
-		System.out.println(s);
 		a.message = "Rsp Hello " + String.valueOf(a.reqNo);
 		return a;
 	}
@@ -145,32 +151,34 @@ public class CommandProcessor {
 		a.message = "Rsp Bye";
 		return a;
 	}
-	DataObject GetDone(DataObject a) {
+	DataObject GetDone(DataObject a, String fName) {
 		int currentConnection = 0;
+		a.message = "Rsp Getdone SUCCESS";
 		for(int i = 0; i < serverClientMap.size(); i++) {
-			if(serverClientMap.get(i).ClientIndex == currentClientId) {
+			if(serverClientMap.get(i).ClientIndex == currentId) {
 				currentConnection = i;
 				break;
 			}
 		}
 		String fileName = serverClientMap.get(currentConnection).fileName;
 		listOfFileObjects.get(fileName).lock.readerDone();
+		serversList.get(serverClientMap.get(currentConnection).ServerIndex).CurrentLoad--;
 		serverClientMap.remove(currentConnection);
 		return a;
 	}
 	DataObject Get(DataObject a, String fileName, int priority) {
 		boolean foundServer = false, error = false;
-		int minLoadServer = 0;
+		int minLoadServer = 0, minLoadIndex = 0;
 		a.message = "Rsp Get " + String.valueOf(a.reqNo);
 		if(listOfFileObjects.containsKey(fileName)) {
 			DirectoryListObject targetFile = listOfFileObjects.get(fileName);
-			int minLoadIndex = targetFile.listOfServers.get(minLoadServer);
+			minLoadIndex = targetFile.listOfServers.get(minLoadServer);
 			if(serversList.get(minLoadIndex).CurrentLoad < serversList.get(minLoadIndex).MaxLoad) {
 				foundServer = true;
 			}
 			for(int i = 1; i < targetFile.listOfServers.size(); i++) {
-				if((serversList.get(targetFile.listOfServers.get(i)).CurrentLoad < serversList.get(targetFile.listOfServers.get(minLoadServer)).CurrentLoad) && (serversList.get(targetFile.listOfServers.get(i)).CurrentLoad < serversList.get(targetFile.listOfServers.get(i)).MaxLoad)) {
-					minLoadServer = i;
+				if((serversList.get(targetFile.listOfServers.get(i)).CurrentLoad < serversList.get(targetFile.listOfServers.get(minLoadIndex)).CurrentLoad) && (serversList.get(targetFile.listOfServers.get(i)).CurrentLoad < serversList.get(targetFile.listOfServers.get(i)).MaxLoad)) {
+					minLoadIndex = i;
 					foundServer = true;
 				}
 			}
@@ -190,17 +198,19 @@ public class CommandProcessor {
 				a.success = false;
 			}
 			if(!error) {
-				a.message += " " + fileName + " READY " + serversList.get(minLoadServer).ServerIP.getHostAddress() + " " + serversList.get(minLoadServer).ServerComPort;
-				ServerClientMapObject connection = new ServerClientMapObject(minLoadServer, currentClientId, fileName);
+				a.message += " " + fileName + " READY " + serversList.get(minLoadIndex).ServerIP.getHostAddress() + " " + serversList.get(minLoadIndex).ServerComPort;
+				ServerClientMapObject connection = new ServerClientMapObject(minLoadIndex, currentId, fileName);
+				serversList.get(minLoadIndex).CurrentLoad++;
 				serverClientMap.add(connection);
 			}
 		}
 		return a;
 	}
-	DataObject PutDone(DataObject a) {
+	DataObject PutDone(DataObject a, String fName) {
 		int currentConnection = 0;
+		a.message = "Rsp Putdone SUCCESS";
 		for(int i = 0; i < serverClientMap.size(); i++) {
-			if(serverClientMap.get(i).ClientIndex == currentClientId) {
+			if(serverClientMap.get(i).ClientIndex == currentId) {
 				currentConnection = i;
 				break;
 			}
@@ -239,7 +249,7 @@ public class CommandProcessor {
 			listOfFileObjects.put(fileName, new DirectoryListObject(fileName));
 			listOfFileObjects.get(fileName).listOfServers.add(minLoadServer);
 			listOfFileObjects.get(fileName).lock.getWriteLock(priority);
-			ServerClientMapObject connection = new ServerClientMapObject(minLoadServer, currentClientId, fileName);
+			ServerClientMapObject connection = new ServerClientMapObject(minLoadServer, currentId, fileName);
 			serverClientMap.add(connection);
 		}
 		return a;

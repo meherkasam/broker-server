@@ -1,7 +1,9 @@
+import java.io.EOFException;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
 import java.net.Socket;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 
@@ -16,6 +18,7 @@ import java.net.Socket;
  */
 
 public class MultiListen implements Runnable{
+	public static ConcurrentHashMap<Socket, ConnectionObject> listOfConnections = new ConcurrentHashMap<Socket, ConnectionObject>();
 	Socket clientSocket = null;
 	DataObject input = null, output = null;
 	public MultiListen(Socket a){
@@ -33,19 +36,27 @@ public class MultiListen implements Runnable{
 	    		try {
 	    			input = (DataObject) is.readObject();
 	    		}
-	    		catch (Exception E) {
-	    			System.out.println(E);
+	    		catch(Exception E){
+	    	    	//System.out.println("Client disconnected");
+	    			if(processor.isServer) {	
+	    				System.out.println("Server " + processor.currentId + " crashed");
+	    			}
+	    			else {	
+	    				System.out.println("Client " + processor.currentId + " crashed");
+	    			}
+	    			clientSocket.close();
+	    			break;
 	    		}
 	    		output = processor.process(input);
 	    		os.writeObject(output);
-    			if(output.message.compareToIgnoreCase("Rsp Bye")==0){
+    			if(output.message.compareToIgnoreCase("Rsp Bye")==0) {
     				clientSocket.close();
     				break;
     			}
 	    	}
 		}
 		catch(IOException E){
-	    	System.out.println("Client disconnected");
+	    	E.printStackTrace();
 		}
 		catch(Exception e){
 			System.out.println(e);

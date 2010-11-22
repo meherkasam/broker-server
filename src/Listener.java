@@ -20,7 +20,7 @@ public class Listener{
 	    while(true){
 	    	try{
 		    	clientSocket = listenerSocket.accept();
-		    	System.out.println("Client connected");
+		    	System.out.println("Machine connected");
 		    	MultiListen myListener = new MultiListen(clientSocket);
 		    	Thread t = new Thread(myListener);
 		    	t.start();
