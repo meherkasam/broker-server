@@ -21,8 +21,9 @@ public class CommandProcessor {
 	private static ConcurrentHashMap<String, File> lookedUpFiles = null;
 	static String serverRoot = "./";
 	FileOutputStream streamToBeWritten = null;
+	int currentClientId;
 	public static ConcurrentHashMap<String, DirectoryListObject> listOfFileObjects = new ConcurrentHashMap<String, DirectoryListObject>();
-	public static ArrayList<ServerClientMapObject> serverClientMap;
+	public static ArrayList<ServerClientMapObject> serverClientMap = new ArrayList<ServerClientMapObject>();
 	public static ArrayList<ListOfClientsObject> clientsList = new ArrayList<ListOfClientsObject>();
 	public static ArrayList<ListOfServersObject> serversList = new ArrayList<ListOfServersObject>();
 	public String senderIP;
@@ -50,10 +51,22 @@ public class CommandProcessor {
 				List(a, Integer.parseInt(tokens[3]), Integer.parseInt(tokens[4]), Integer.parseInt(tokens[5]));
 				return a;
 			}
+			else if(tokens[1].compareToIgnoreCase("GETDONE") == 0) {
+				DataObject a = new DataObject(0, Integer.parseInt(tokens[2]));
+				a.senderId = input.senderId;
+				GetDone(a);
+				return a;
+			}
 			else if(tokens[1].compareToIgnoreCase("GET") == 0) {
 				DataObject a = new DataObject(0, Integer.parseInt(tokens[2]));
 				a.senderId = input.senderId;
 				Get(a, tokens[3], Integer.parseInt(tokens[4]));
+				return a;
+			}
+			else if(tokens[1].compareToIgnoreCase("PUTDONE") == 0) {
+				DataObject a = new DataObject(0, Integer.parseInt(tokens[2]));
+				a.senderId = input.senderId;
+				PutDone(a);
 				return a;
 			}
 			else if(tokens[1].compareToIgnoreCase("PUT") == 0) {
@@ -105,6 +118,7 @@ public class CommandProcessor {
 			//Add client to clientlist
 			int clientPort = Integer.parseInt(parameters[2]);
 			ListOfClientsObject newClient = new ListOfClientsObject(senderIP, clientPort, a.senderId);
+			currentClientId = clientsList.size();
 			clientsList.add(newClient);
 			System.out.println("Client says hello");
 		}
@@ -120,7 +134,7 @@ public class CommandProcessor {
 	    Iterator<DirectoryListObject> ii = listOfFileObjects.values().iterator();
 		while(ii.hasNext() && j < max) {
 			DirectoryListObject currFile = (DirectoryListObject) ii.next();
-			String fileName = currFile.fileHandle.getName();
+			String fileName = currFile.fileName;
 			fileList += " " + fileName;
 			j++;
 		}
@@ -131,19 +145,32 @@ public class CommandProcessor {
 		a.message = "Rsp Bye";
 		return a;
 	}
+	DataObject GetDone(DataObject a) {
+		int currentConnection = 0;
+		for(int i = 0; i < serverClientMap.size(); i++) {
+			if(serverClientMap.get(i).ClientIndex == currentClientId) {
+				currentConnection = i;
+				break;
+			}
+		}
+		String fileName = serverClientMap.get(currentConnection).fileName;
+		listOfFileObjects.get(fileName).lock.readerDone();
+		serverClientMap.remove(currentConnection);
+		return a;
+	}
 	DataObject Get(DataObject a, String fileName, int priority) {
 		boolean foundServer = false, error = false;
-		int minLoad = 0;
+		int minLoadServer = 0;
 		a.message = "Rsp Get " + String.valueOf(a.reqNo);
 		if(listOfFileObjects.containsKey(fileName)) {
 			DirectoryListObject targetFile = listOfFileObjects.get(fileName);
-			int minLoadIndex = targetFile.listOfServers.get(minLoad);
+			int minLoadIndex = targetFile.listOfServers.get(minLoadServer);
 			if(serversList.get(minLoadIndex).CurrentLoad < serversList.get(minLoadIndex).MaxLoad) {
 				foundServer = true;
 			}
 			for(int i = 1; i < targetFile.listOfServers.size(); i++) {
-				if((serversList.get(targetFile.listOfServers.get(i)).CurrentLoad < serversList.get(targetFile.listOfServers.get(minLoad)).CurrentLoad) && (serversList.get(targetFile.listOfServers.get(i)).CurrentLoad < serversList.get(targetFile.listOfServers.get(i)).MaxLoad)) {
-					minLoad = i;
+				if((serversList.get(targetFile.listOfServers.get(i)).CurrentLoad < serversList.get(targetFile.listOfServers.get(minLoadServer)).CurrentLoad) && (serversList.get(targetFile.listOfServers.get(i)).CurrentLoad < serversList.get(targetFile.listOfServers.get(i)).MaxLoad)) {
+					minLoadServer = i;
 					foundServer = true;
 				}
 			}
@@ -163,41 +190,58 @@ public class CommandProcessor {
 				a.success = false;
 			}
 			if(!error) {
-				a.message += " " + fileName + " READY " + serversList.get(minLoad).ServerIP.getHostAddress() + " " + serversList.get(minLoad).ServerComPort;
+				a.message += " " + fileName + " READY " + serversList.get(minLoadServer).ServerIP.getHostAddress() + " " + serversList.get(minLoadServer).ServerComPort;
+				ServerClientMapObject connection = new ServerClientMapObject(minLoadServer, currentClientId, fileName);
+				serverClientMap.add(connection);
 			}
 		}
 		return a;
 	}
-	/*DataObject Put(DataObject a, String fileName, int priority) {
-		boolean fileFound = false;
+	DataObject PutDone(DataObject a) {
+		int currentConnection = 0;
+		for(int i = 0; i < serverClientMap.size(); i++) {
+			if(serverClientMap.get(i).ClientIndex == currentClientId) {
+				currentConnection = i;
+				break;
+			}
+		}
+		String fileName = serverClientMap.get(currentConnection).fileName;
+		listOfFileObjects.get(fileName).lock.writerDone();
+		serverClientMap.remove(currentConnection);
+		return a;
+	}
+	DataObject Put(DataObject a, String fileName, int priority) {
+		boolean fileFound = false, foundServer = false;
+		int minLoadServer = 0;
 		a.message = "Rsp Put " + String.valueOf(a.reqNo);
 		if(listOfFileObjects.containsKey(fileName)) {
 			fileFound = true;
 		}
 		if(fileFound) {
-			//a.message += " " + fileName + " FAILURE 0x005";
-			//a.success = false;
+			a.message += " " + fileName + " FAILURE 0x005";
+			a.success = false;
+			return a;
+		}
+		else {
+			for(int i = 0; i < serversList.size(); i++) {
+				if(serversList.get(i).CurrentLoad < serversList.get(i).MaxLoad) {
+					foundServer = true;
+					minLoadServer = i;
+					break;
+				}
+			}
+			if(!foundServer) {
+				a.message += " " + fileName + " FAILURE 0x005";
+				a.success = false;
+				return a;
+			}
+			a.message += " " + fileName + " READY " + serversList.get(minLoadServer).ServerIP.getHostAddress() + " " + serversList.get(minLoadServer).ServerComPort;
+			listOfFileObjects.put(fileName, new DirectoryListObject(fileName));
+			listOfFileObjects.get(fileName).listOfServers.add(minLoadServer);
 			listOfFileObjects.get(fileName).lock.getWriteLock(priority);
-			listOfFileObjects.get(fileName).fileHandle.delete();
-			listOfFileObjects.get(fileName).lock.writerDone();
-			//listOfFileObjects.remove(fileName);
-		}
-		SecureRandom keyGen = new SecureRandom();
-		String randFileId = new BigInteger(130, keyGen).toString(32);
-		a.message += " " + fileName + " READY " + randFileId;
-		File fileToBeWritten = new File(Listener.serverRoot + fileName);
-		if(!fileFound)
-			listOfFileObjects.put(fileName, new FileObject(fileToBeWritten));
-		listOfFileObjects.get(fileName).lock.getWriteLock(priority);
-		lookedUpFiles.put(a.senderId + ":" + randFileId, listOfFileObjects.get(fileName).fileHandle);
-		//FileObject newFileHandle = new FileObject (fileToBeWritten);
-		//listOfFileObjects.put(listOfFiles[i].getName(),a);
-		try {
-			streamToBeWritten = new FileOutputStream(fileToBeWritten);
-		}
-		catch (IOException E) {
-			
+			ServerClientMapObject connection = new ServerClientMapObject(minLoadServer, currentClientId, fileName);
+			serverClientMap.add(connection);
 		}
 		return a;
-	}*/
+	}
 }

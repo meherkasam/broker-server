@@ -2,11 +2,11 @@ import java.io.File;
 import java.util.*;
 
 public class DirectoryListObject {
-	public File fileHandle;
+	public String fileName;
 	public CustomReadWriteLock lock;
 	public ArrayList<Integer> listOfServers;
-	DirectoryListObject(String fileName) {
-		fileHandle = new File(fileName);
+	DirectoryListObject(String fName) {
+		fileName = fName;
 		lock = new CustomReadWriteLock();
 		listOfServers = new ArrayList<Integer>();
 	}
