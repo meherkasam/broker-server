@@ -1,8 +1,5 @@
 import java.util.concurrent.ConcurrentHashMap;
 import java.io.*;
-import java.math.BigInteger;
-import java.net.Socket;
-import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Iterator;
 
@@ -19,7 +16,6 @@ import java.util.Iterator;
 
 public class CommandProcessor {
 	public final static int KB2B = 1024;
-	private static ConcurrentHashMap<String, File> lookedUpFiles = null;
 	static String serverRoot = "./";
 	FileOutputStream streamToBeWritten = null;
 	int currentId;
@@ -82,6 +78,18 @@ public class CommandProcessor {
 				DataObject a = new DataObject(0, Integer.parseInt(tokens[2]));
 				a.senderId = input.senderId;
 				//Delete(a, tokens[3], Integer.parseInt(tokens[4]));
+				return a;
+			}
+			else if(tokens[1].compareToIgnoreCase("PUSH") == 0) {
+				DataObject a = new DataObject(Integer.parseInt(tokens[6]), Integer.parseInt(tokens[2]));
+				a.data = input.data;
+				a.length = input.length;
+				a.senderId = input.senderId;
+				boolean isLast = false;
+				if(tokens[4].compareTo("LAST") == 0) {
+					isLast = true;
+				}
+				Push(a, tokens[3], Integer.parseInt(tokens[5]), Integer.parseInt(tokens[6]), isLast);
 				return a;
 			}
 			else {
@@ -202,13 +210,14 @@ public class CommandProcessor {
 				ServerClientMapObject connection = new ServerClientMapObject(minLoadIndex, currentId, fileName);
 				serversList.get(minLoadIndex).CurrentLoad++;
 				serverClientMap.add(connection);
+				
 			}
 		}
 		return a;
 	}
 	DataObject PutDone(DataObject a, String fName) {
 		int currentConnection = 0;
-		a.message = "Rsp Putdone SUCCESS";
+		//a.message = "Rsp Putdone SUCCESS";
 		for(int i = 0; i < serverClientMap.size(); i++) {
 			if(serverClientMap.get(i).ClientIndex == currentId) {
 				currentConnection = i;
@@ -247,11 +256,72 @@ public class CommandProcessor {
 			}
 			a.message += " " + fileName + " READY " + serversList.get(minLoadServer).ServerIP.getHostAddress() + " " + serversList.get(minLoadServer).ServerComPort;
 			listOfFileObjects.put(fileName, new DirectoryListObject(fileName));
-			listOfFileObjects.get(fileName).listOfServers.add(minLoadServer);
+			//listOfFileObjects.get(fileName).listOfServers.add(minLoadServer);
 			listOfFileObjects.get(fileName).lock.getWriteLock(priority);
-			ServerClientMapObject connection = new ServerClientMapObject(minLoadServer, currentId, fileName);
-			serverClientMap.add(connection);
+			//ServerClientMapObject connection = new ServerClientMapObject(minLoadServer, currentId, fileName);
+			//serverClientMap.add(connection);
+			
 		}
 		return a;
+	}
+	DataObject Push(DataObject a, String fileName, int startByte, int length, boolean isLast) {
+		a.message = "Rsp Push " + String.valueOf(a.reqNo);
+		System.out.println("Push requested: " + fileName);
+		File fileToBeWritten = new File(Listener.tmpRoot + "tmp_" + fileName);
+		try {
+			if(streamToBeWritten == null)
+				streamToBeWritten = new FileOutputStream(fileToBeWritten);
+			streamToBeWritten.write(a.data, 0, length);
+			streamToBeWritten.flush();
+			if (isLast) {
+				streamToBeWritten.close();
+				streamToBeWritten = null;
+				listOfFileObjects.get(fileName).lock.writerDone();
+			}
+		}
+		catch(IOException e) {
+			a.message += " " + "FAILURE 0x005";
+			a.success = false;
+			return a;
+		}
+		a.message += " " + "SUCCESS " + Integer.toString(length);
+		fileToBeWritten.renameTo(new File(fileName));
+		return a;
+	}
+	void serverCrashHandler() {
+		Iterator<ServerClientMapObject> ii = serverClientMap.iterator();
+		while(ii.hasNext()) {
+			ServerClientMapObject currConnection = (ServerClientMapObject) ii.next();
+			if(currConnection.ServerIndex == currentId) {
+				System.out.println ("Connection closed: " + currConnection.ServerIndex + " " + currConnection.ClientIndex);
+				ii.remove();
+			}
+		}
+		serversList.get(currentId).status = false;
+		Iterator<DirectoryListObject> jj = listOfFileObjects.values().iterator();
+		while(jj.hasNext()) {
+			DirectoryListObject currFile = jj.next();
+			for(int i = 0; i < currFile.listOfServers.size(); i++) {
+				if(currFile.listOfServers.get(i) == currentId) {
+					currFile.listOfServers.remove(i);
+					break;
+				}
+			}
+			if(currFile.listOfServers.size() == 0) {
+				jj.remove();
+			}
+		}
+	}
+	void clientCrashHandler() {
+		Iterator<ServerClientMapObject> ii = serverClientMap.iterator();
+		while(ii.hasNext()) {
+			ServerClientMapObject currConnection = (ServerClientMapObject) ii.next();
+			if(currConnection.ClientIndex == currentId) {
+				System.out.println ("Connection closed: " + currConnection.ServerIndex + " " + currConnection.ClientIndex);
+				ii.remove();
+				break;
+			}
+		}
+		clientsList.get(currentId).status = false;
 	}
 }

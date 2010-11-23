@@ -1,4 +1,3 @@
-import java.io.EOFException;
 import java.io.IOException;
 import java.io.ObjectInputStream;
 import java.io.ObjectOutputStream;
@@ -40,6 +39,7 @@ public class MultiListen implements Runnable{
 	    	    	//System.out.println("Client disconnected");
 	    			if(processor.isServer) {	
 	    				System.out.println("Server " + processor.currentId + " crashed");
+	    				processor.serverCrashHandler();	    				
 	    			}
 	    			else {	
 	    				System.out.println("Client " + processor.currentId + " crashed");

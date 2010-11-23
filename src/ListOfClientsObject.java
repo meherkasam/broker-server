@@ -3,8 +3,10 @@ public class ListOfClientsObject {
 	public int ClientComPort; //Used to identify the port in the client to be used for data communication
 	public String LastRequest; //Used to identify the last request made (e.g. get, put)
 	public String clientId;
+	public boolean status;
 	
 	ListOfClientsObject( String cip, int cport, String cid ){
+		status = true;
 		ClientIP = cip;
 		ClientComPort = cport;
 		clientId = cid;

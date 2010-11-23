@@ -7,8 +7,9 @@ public class ListOfServersObject {
 	//public int ServerPollPort;//Used to identify the port in the server to be used for polling for liveness
 	public int CurrentLoad; //To store the current load of the server
 	public int MaxLoad; //To store the current load of the server
-	
+	public boolean status;
 	ListOfServersObject( String sip, int sport, int maxload ){
+		status = true;
 		try {
 			ServerIP = (Inet4Address) Inet4Address.getByName(sip);
 		} catch (UnknownHostException e) {
