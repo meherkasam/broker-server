@@ -1,6 +1,4 @@
-import java.io.IOException;
-import java.io.ObjectInputStream;
-import java.io.ObjectOutputStream;
+import java.io.*;
 import java.net.Socket;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -20,6 +18,7 @@ public class MultiListen implements Runnable{
 	public static ConcurrentHashMap<Socket, ConnectionObject> listOfConnections = new ConcurrentHashMap<Socket, ConnectionObject>();
 	Socket clientSocket = null;
 	DataObject input = null, output = null;
+	
 	public MultiListen(Socket a){
 		clientSocket = a;
 	}
@@ -34,6 +33,8 @@ public class MultiListen implements Runnable{
 	    	while (true) {
 	    		try {
 	    			input = (DataObject) is.readObject();
+	    			brokerserver.log.println(input.message);
+	    			brokerserver.log.flush();
 	    		}
 	    		catch(Exception E){
 	    	    	//System.out.println("Client disconnected");
@@ -43,11 +44,14 @@ public class MultiListen implements Runnable{
 	    			}
 	    			else {	
 	    				System.out.println("Client " + processor.currentId + " crashed");
+	    				processor.clientCrashHandler();
 	    			}
 	    			clientSocket.close();
 	    			break;
 	    		}
 	    		output = processor.process(input);
+	    		brokerserver.log.println(output.message);
+	    		brokerserver.log.flush();
 	    		os.writeObject(output);
     			if(output.message.compareToIgnoreCase("Rsp Bye")==0) {
     				clientSocket.close();
@@ -56,10 +60,12 @@ public class MultiListen implements Runnable{
 	    	}
 		}
 		catch(IOException E){
-	    	E.printStackTrace();
+	    	System.out.println("Client " + processor.currentId + " crashed");
+			processor.clientCrashHandler();
 		}
 		catch(Exception e){
-			System.out.println(e);
+			System.out.println("Client " + processor.currentId + " crashed");
+			processor.clientCrashHandler();
 		}
 	}
 }

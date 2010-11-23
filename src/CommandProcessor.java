@@ -1,6 +1,6 @@
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.io.*;
-import java.util.ArrayList;
 import java.util.Iterator;
 
 /**
@@ -21,11 +21,14 @@ public class CommandProcessor {
 	int currentId;
 	boolean isServer = false;
 	public static ConcurrentHashMap<String, DirectoryListObject> listOfFileObjects = new ConcurrentHashMap<String, DirectoryListObject>();
-	public static ArrayList<ServerClientMapObject> serverClientMap = new ArrayList<ServerClientMapObject>();
-	public static ArrayList<ListOfClientsObject> clientsList = new ArrayList<ListOfClientsObject>();
-	public static ArrayList<ListOfServersObject> serversList = new ArrayList<ListOfServersObject>();
+	public static CopyOnWriteArrayList<ServerClientMapObject> serverClientMap = new CopyOnWriteArrayList<ServerClientMapObject>();
+	public static CopyOnWriteArrayList<ListOfClientsObject> clientsList = new CopyOnWriteArrayList<ListOfClientsObject>();
+	public static CopyOnWriteArrayList<ListOfServersObject> serversList = new CopyOnWriteArrayList<ListOfServersObject>();
+	public boolean currentlyWriting = false;
+	String currFileName = "";
 	//public Socket currentSocket = null;
 	public String senderIP;
+	int currentPriority = 1;
 	public CommandProcessor() {		
 		//currentSocket = mySock;
 	}	
@@ -77,7 +80,7 @@ public class CommandProcessor {
 			else if(tokens[1].compareToIgnoreCase("DELETE") == 0) {
 				DataObject a = new DataObject(0, Integer.parseInt(tokens[2]));
 				a.senderId = input.senderId;
-				//Delete(a, tokens[3], Integer.parseInt(tokens[4]));
+				Delete(a, tokens[3], Integer.parseInt(tokens[4]));
 				return a;
 			}
 			else if(tokens[1].compareToIgnoreCase("PUSH") == 0) {
@@ -110,7 +113,8 @@ public class CommandProcessor {
 			serversList.add(newServerObject);
 			String servers = "";
 			for(int z = 0; z < serversList.size(); z++) {
-				servers += serversList.get(z).ServerIP.toString() + " " + serversList.get(z).ServerComPort + " ";
+				if(serversList.get(z).status)
+					servers += serversList.get(z).ServerIP.toString() + " " + serversList.get(z).ServerComPort + " ";
 			}
 			System.out.println("Servers list: " + servers);
 			int serverIndex = serversList.size() - 1;
@@ -181,11 +185,8 @@ public class CommandProcessor {
 		if(listOfFileObjects.containsKey(fileName)) {
 			DirectoryListObject targetFile = listOfFileObjects.get(fileName);
 			minLoadIndex = targetFile.listOfServers.get(minLoadServer);
-			if(serversList.get(minLoadIndex).CurrentLoad < serversList.get(minLoadIndex).MaxLoad) {
-				foundServer = true;
-			}
-			for(int i = 1; i < targetFile.listOfServers.size(); i++) {
-				if((serversList.get(targetFile.listOfServers.get(i)).CurrentLoad < serversList.get(targetFile.listOfServers.get(minLoadIndex)).CurrentLoad) && (serversList.get(targetFile.listOfServers.get(i)).CurrentLoad < serversList.get(targetFile.listOfServers.get(i)).MaxLoad)) {
+			for(int i = 0; i < targetFile.listOfServers.size(); i++) {
+				if((serversList.get(targetFile.listOfServers.get(i)).CurrentLoad < serversList.get(targetFile.listOfServers.get(i)).MaxLoad) && serversList.get(targetFile.listOfServers.get(i)).status) {
 					minLoadIndex = i;
 					foundServer = true;
 				}
@@ -230,38 +231,33 @@ public class CommandProcessor {
 		return a;
 	}
 	DataObject Put(DataObject a, String fileName, int priority) {
-		boolean fileFound = false, foundServer = false;
+		currentPriority = priority;
+		boolean foundServer = false;
+		currentlyWriting = true;
+		currFileName = fileName;
 		int minLoadServer = 0;
 		a.message = "Rsp Put " + String.valueOf(a.reqNo);
-		if(listOfFileObjects.containsKey(fileName)) {
-			fileFound = true;
-		}
-		if(fileFound) {
-			a.message += " " + fileName + " FAILURE 0x005";
-			a.success = false;
-			return a;
-		}
-		else {
-			for(int i = 0; i < serversList.size(); i++) {
-				if(serversList.get(i).CurrentLoad < serversList.get(i).MaxLoad) {
+		for(int i = 0; i < serversList.size(); i++) {
+			if(serversList.get(i).CurrentLoad < serversList.get(i).MaxLoad) {
+				if(serversList.get(i).status) {
 					foundServer = true;
 					minLoadServer = i;
 					break;
 				}
 			}
-			if(!foundServer) {
-				a.message += " " + fileName + " FAILURE 0x005";
-				a.success = false;
-				return a;
-			}
-			a.message += " " + fileName + " READY " + serversList.get(minLoadServer).ServerIP.getHostAddress() + " " + serversList.get(minLoadServer).ServerComPort;
-			listOfFileObjects.put(fileName, new DirectoryListObject(fileName));
-			//listOfFileObjects.get(fileName).listOfServers.add(minLoadServer);
-			listOfFileObjects.get(fileName).lock.getWriteLock(priority);
-			//ServerClientMapObject connection = new ServerClientMapObject(minLoadServer, currentId, fileName);
-			//serverClientMap.add(connection);
-			
 		}
+		if(!foundServer) {
+			a.message += " " + fileName + " FAILURE 0x005";
+			a.success = false;
+			return a;
+		}
+		a.message += " " + fileName + " READY " + serversList.get(minLoadServer).ServerIP.getHostAddress() + " " + serversList.get(minLoadServer).ServerComPort;
+		if(!listOfFileObjects.containsKey(fileName))
+			listOfFileObjects.put(fileName, new DirectoryListObject(fileName));
+		//listOfFileObjects.get(fileName).listOfServers.add(minLoadServer);
+		listOfFileObjects.get(fileName).lock.getWriteLock(priority);
+		//ServerClientMapObject connection = new ServerClientMapObject(minLoadServer, currentId, fileName);
+		//serverClientMap.add(connection);
 		return a;
 	}
 	DataObject Push(DataObject a, String fileName, int startByte, int length, boolean isLast) {
@@ -277,6 +273,12 @@ public class CommandProcessor {
 				streamToBeWritten.close();
 				streamToBeWritten = null;
 				listOfFileObjects.get(fileName).lock.writerDone();
+				fileToBeWritten.renameTo(new File(fileName));
+				currentlyWriting = false;
+				currFileName = "";
+				FSPutter myputter = new FSPutter(fileName, currentPriority, true);
+				Thread t = new Thread(myputter);
+				t.start();
 			}
 		}
 		catch(IOException e) {
@@ -285,7 +287,25 @@ public class CommandProcessor {
 			return a;
 		}
 		a.message += " " + "SUCCESS " + Integer.toString(length);
-		fileToBeWritten.renameTo(new File(fileName));
+		return a;
+	}
+	DataObject Delete(DataObject a, String fileName, int priority) {
+		boolean error = !listOfFileObjects.containsKey(fileName);
+		a.message = "Rsp Delete " + String.valueOf(a.reqNo) + " " + fileName;
+		if(!error) {
+			FSPutter myputter = new FSPutter(fileName, priority, false);
+			Thread t = new Thread(myputter);
+			t.start();
+			/*listOfFileObjects.get(fileName).lock.getWriteLock(priority);
+			deleted = toBeDeleted.delete();
+			listOfFileObjects.get(fileName).lock.writerDone();
+			listOfFileObjects.remove(fileName);*/
+			a.message += " SUCCESS";
+		}
+		else {
+			a.success = false;
+			a.message += " FAILURE 0x005";
+		}
 		return a;
 	}
 	void serverCrashHandler() {
@@ -313,6 +333,19 @@ public class CommandProcessor {
 		}
 	}
 	void clientCrashHandler() {
+		if(currentlyWriting) {
+			File toBeDeleted = new File(Listener.tmpRoot + "tmp_" + currFileName);
+			System.out.println("File deleted");
+			streamToBeWritten = null;
+			currentlyWriting = false;
+			currFileName = "";
+			try {
+				toBeDeleted.delete();
+			}
+			catch(Exception E) {
+				System.out.println("Error deleting");
+			}
+		}
 		Iterator<ServerClientMapObject> ii = serverClientMap.iterator();
 		while(ii.hasNext()) {
 			ServerClientMapObject currConnection = (ServerClientMapObject) ii.next();
